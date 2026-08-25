@@ -13280,7 +13280,19 @@
 			)
 		)
 	)
-	(gr_text "From:\nJacob, Sasha\nZhuzhu, & Wormy"
+	(gr_text "Ornament2026\nRev0"
+		(at 138.2776 140.5636 70)
+		(layer "B.SilkS")
+		(uuid "c300eb07-c19c-4fab-b2a7-3d08e72e4ce0")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+			(justify left bottom mirror)
+		)
+	)
+	(gr_text "From:\nJacob, Sasha,\nZhuzhu, & Wormy"
 		(at 148.7046 116.7826 0)
 		(layer "B.SilkS")
 		(uuid "60e10847-3668-45f8-8923-43577c5dbeee")
