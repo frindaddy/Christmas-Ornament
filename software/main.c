@@ -63,7 +63,7 @@
  * PATTERN_DURATION_MS: how long the LED show runs after being woken.
  * PATTERN_STEP_MS:     how long each group stays lit before swapping.
  * ------------------------------------------------------------------------ */
-#define PATTERN_DURATION_MS   10000
+#define PATTERN_DURATION_MS   	5000
 #define PATTERN_STEP_MS         100
 
 /* Set inside the EXTI interrupt handler when a shake wakes the chip;
