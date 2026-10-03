@@ -32,19 +32,11 @@
  *   PA2  - SWCLK (left alone here; used only for programming/debug)
  *   PB6  - SWDIO (left alone here; used only for programming/debug)
  *
- * KNOWN OPEN ITEMS -- NOT YET CONFIRMED ON REAL HARDWARE
+ * KNOWN OPEN ITEM -- NOT YET CALIBRATED ON REAL HARDWARE
  * ----------------------------------------------------------------------------
- * These two spots are flagged inline as well, but worth calling out up top:
- *
- *   1. EnterStopMode()'s PWR->CR1 write is a placeholder bit position.
- *      Confirm the real "select Stop mode" bit against the PWR_CR1 register
- *      table in Puya's reference manual before trusting battery life
- *      numbers -- if this bit is wrong, the chip may not actually be
- *      entering low-power mode at all.
- *
- *   2. SimpleDelayMs()'s timing is an uncalibrated busy-wait loop. If the
- *      on/off alternation looks visibly faster or slower than ~500ms per
- *      step once flashed, adjust the loop's iteration multiplier.
+ * SimpleDelayMs() is an uncalibrated busy-wait loop. If the on/off
+ * alternation looks visibly faster or slower than the intended step time
+ * once flashed, adjust the loop's iteration multiplier.
  *
  * Everything else in this file has been confirmed to build clean (0 errors,
  * 0 warnings) against Puya's PY32F0xx_Drivers package, using only
@@ -237,24 +229,55 @@ static void SimpleDelayMs(uint32_t ms)
 
 /* -----------------------------------------------------------------------
  * EnterStopMode
- *   Puts the chip into STOP mode (the low-power state where SRAM and
- *   registers are retained, HSI is off, and only GPIO/IWDG/NRST/LPTIM can
- *   wake it) and waits for the EXTI interrupt to bring it back.
+ *   Enter the PY32F002B-C STOP mode described in the reference manual.
  *
- *   NOT YET CONFIRMED: the PWR->CR1 bit set below is a placeholder for
- *   "select Stop mode" -- verify the real bit position against the
- *   PWR_CR1 register table in Puya's reference manual before trusting
- *   this actually drops into low-power mode on real hardware.
+ *   STOP mode requirements for this device:
+ *     - select the regulator mode in PWR_CR1.LPR
+ *     - clear pending EXTI/peripheral interrupt flags
+ *     - select HSI as SYSCLK and HPRE = 0 before WFI
+ *     - set Cortex-M0+ SLEEPDEEP
+ *     - execute WFI
+ *
+ *   We use LPR=01 here because this ornament is battery powered and the
+ *   datasheet specifies substantially lower STOP current with the low-power
+ *   regulator. The tradeoff is a slightly longer wake-up time.
  * ------------------------------------------------------------------------- */
 static void EnterStopMode(void)
 {
-    PWR->CR1 |= (1UL << 0);   /* placeholder: verify stop-mode select bit */
+    /* The reference manual says SYSCLK should be HSI before STOP entry.
+       HSI is automatically selected again when STOP is exited, but doing
+       the switch explicitly here also handles the case where another part
+       of the application has changed SYSCLK. */
+    RCC->CR |= (1UL << 8);                 /* HSION */
+    while ((RCC->CR & (1UL << 10)) == 0)   /* HSIRDY */
+    {
+    }
 
+    /* Select HSISYS (SW = 000) and remove any AHB prescaler (HPRE = 0000).
+       The reference manual specifies HPRE=0 before STOP to avoid extra
+       clock cycles during wake-up. */
+    RCC->CFGR &= ~((0xFUL << 8) | 0x7UL);
+    while ((RCC->CFGR & (0x7UL << 3)) != 0)
+    {
+        /* Wait until the hardware reports HSISYS as the active SYSCLK. */
+    }
+
+    /* LPR = 01: STOP mode powered by the low-power regulator.
+       Preserve FLS_SLPTIME, HSION_CTRL, SRAM_RETV and reserved bits. */
+    PWR->CR1 = (PWR->CR1 & ~(3UL << 14)) | (1UL << 14);
+
+    /* The PY32F002B-C reference manual explicitly states that a pending
+       EXTI/peripheral interrupt prevents STOP entry. PB0 is EXTI0. */
+    EXTI->PR = (1UL << 0);
+    NVIC_ClearPendingIRQ(EXTI0_1_IRQn);
+
+    /* Enter Cortex-M0+ deep sleep, which the PY32 power controller turns
+       into STOP mode with the PWR_CR1 settings above. */
     SCB->SCR |= SCB_SCR_SLEEPDEEP_Msk;
+    __DSB();
     __WFI();
+    __ISB();
 
-    /* Execution resumes here once EXTI wakes the chip. Depending on the
-       exact regulator/clock behavior of Stop mode on this part, HSI may
-       need re-enabling on wake -- check Puya's own stop-mode example
-       project for the expected wake-up sequence if behavior looks off. */
+    /* STOP exit automatically selects HSI as SYSCLK. Nothing else is
+       required here for this application. */
 }
