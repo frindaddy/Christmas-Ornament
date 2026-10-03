@@ -14,7 +14,7 @@
  *
  * Once awake, the firmware alternates two groups of LEDs -- Group A on PB1,
  * Group B on PA7, each driven through its own N-MOSFET -- switching which
- * group is lit roughly every 500ms, for about 30 seconds total. After that,
+ * group is lit roughly every 250ms, for about 5 seconds total. After that,
  * both groups turn off and the chip drops straight back into STOP mode to
  * wait for the next shake.
  *
@@ -32,21 +32,10 @@
  *   PA2  - SWCLK (left alone here; used only for programming/debug)
  *   PB6  - SWDIO (left alone here; used only for programming/debug)
  *
- * KNOWN OPEN ITEM -- NOT YET CALIBRATED ON REAL HARDWARE
+ * TIMING
  * ----------------------------------------------------------------------------
- * SimpleDelayMs() is an uncalibrated busy-wait loop. If the on/off
- * alternation looks visibly faster or slower than the intended step time
- * once flashed, adjust the loop's iteration multiplier.
- *
- * Everything else in this file has been confirmed to build clean (0 errors,
- * 0 warnings) against Puya's PY32F0xx_Drivers package, using only
- * py32f0xx_ll_gpio.c/h and py32f0xx_ll_exti.c/h (both known-clean files).
- * RCC clock-enable and STOP-mode entry are done via direct register access
- * rather than through py32f0xx_ll_rcc.c / py32f0xx_ll_pwr.c / 
- * py32f0xx_ll_utils.c, since those three reference HSE- and voltage-scaling-
- * related register bits that this specific low-pin-count device's header
- * doesn't define -- a real gap in Puya's shared family driver files, not
- * something this design ever needed anyway (no HSE, no voltage scaling).
+ * SysTick derives delays from the current core clock. Actual wall-clock
+ * timing is subject to the internal oscillator's accuracy.
  * ===========================================================================
  */
 
@@ -63,11 +52,10 @@
  * PATTERN_DURATION_MS: how long the LED show runs after being woken.
  * PATTERN_STEP_MS:     how long each group stays lit before swapping.
  * ------------------------------------------------------------------------ */
-#define PATTERN_DURATION_MS   	5000
-#define PATTERN_STEP_MS         100
+#define PATTERN_DURATION_MS    5000
+#define PATTERN_STEP_MS         250
 
-/* Set inside the EXTI interrupt handler when a shake wakes the chip;
-   cleared once the main loop has handled it and gone back to sleep. */
+/* Set by EXTI when a shake wakes the chip. */
 static volatile uint8_t wake_flag = 0;
 
 static void GPIO_Config(void);
@@ -92,6 +80,7 @@ int main(void)
         {
             wake_flag = 0;
             RunLedPattern();
+            wake_flag = 0;  /* Ignore switch chatter during the pattern. */
         }
     }
 }
@@ -120,11 +109,11 @@ static void GPIO_Config(void)
 
     gpio_init.Pin = LED_GROUP_A_PIN;
     LL_GPIO_Init(GPIOB, &gpio_init);
-    LL_GPIO_ResetOutputPin(GPIOB, LED_GROUP_A_PIN);   /* start off */
+    LL_GPIO_ResetOutputPin(GPIOB, LED_GROUP_A_PIN); /* LEDs off */
 
     gpio_init.Pin = LED_GROUP_B_PIN;
     LL_GPIO_Init(GPIOA, &gpio_init);
-    LL_GPIO_ResetOutputPin(GPIOA, LED_GROUP_B_PIN);   /* start off */
+    LL_GPIO_ResetOutputPin(GPIOA, LED_GROUP_B_PIN); /* LEDs off */
 
     LL_GPIO_InitTypeDef sw_init;
     LL_GPIO_StructInit(&sw_init);
@@ -176,11 +165,8 @@ void EXTI0_1_IRQHandler(void)
 
 /* -----------------------------------------------------------------------
  * RunLedPattern
- *   The actual "show": alternates Group A and Group B every
- *   PATTERN_STEP_MS, for a total of PATTERN_DURATION_MS, then turns both
- *   off before returning. Further switch chatter during this window just
- *   re-triggers the same interrupt harmlessly (wake_flag gets set again,
- *   but we're not re-entering EnterStopMode until this function returns).
+ *   Alternates the LED groups at PATTERN_STEP_MS intervals for
+ *   PATTERN_DURATION_MS, then turns both groups off.
  * ------------------------------------------------------------------------- */
 static void RunLedPattern(void)
 {
@@ -210,38 +196,32 @@ static void RunLedPattern(void)
     LL_GPIO_ResetOutputPin(GPIOA, LED_GROUP_B_PIN);
 }
 
-/* -----------------------------------------------------------------------
- * SimpleDelayMs
- *   A rough busy-wait delay, since this design doesn't link in Puya's
- *   ll_utils.c (see the file-level comment for why). Not precisely
- *   calibrated -- fine for a decorative ~500ms blink step where exact
- *   timing doesn't matter. If real-world timing looks noticeably off
- *   once flashed, adjust the multiplier below.
- * ------------------------------------------------------------------------- */
+/* Wait for the requested number of milliseconds using the core clock. */
 static void SimpleDelayMs(uint32_t ms)
 {
-    volatile uint32_t i;
-    for (i = 0; i < ms * 2000UL; i++)
+    if (ms == 0U)
     {
-        __NOP();
+        return;
     }
+
+    SysTick->CTRL = 0U;
+    SystemCoreClockUpdate();
+    SysTick->LOAD = (SystemCoreClock / 1000UL) - 1UL;
+    SysTick->VAL = 0U;
+    SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_ENABLE_Msk;
+
+    while (ms > 0U)
+    {
+        while ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) == 0U)
+        {
+        }
+        --ms;
+    }
+
+    SysTick->CTRL = 0U;
 }
 
-/* -----------------------------------------------------------------------
- * EnterStopMode
- *   Enter the PY32F002B-C STOP mode described in the reference manual.
- *
- *   STOP mode requirements for this device:
- *     - select the regulator mode in PWR_CR1.LPR
- *     - clear pending EXTI/peripheral interrupt flags
- *     - select HSI as SYSCLK and HPRE = 0 before WFI
- *     - set Cortex-M0+ SLEEPDEEP
- *     - execute WFI
- *
- *   We use LPR=01 here because this ornament is battery powered and the
- *   datasheet specifies substantially lower STOP current with the low-power
- *   regulator. The tradeoff is a slightly longer wake-up time.
- * ------------------------------------------------------------------------- */
+/* Configure the clock and enter STOP mode until an interrupt wakes the MCU. */
 static void EnterStopMode(void)
 {
     /* The reference manual says SYSCLK should be HSI before STOP entry.
@@ -266,10 +246,16 @@ static void EnterStopMode(void)
        Preserve FLS_SLPTIME, HSION_CTRL, SRAM_RETV and reserved bits. */
     PWR->CR1 = (PWR->CR1 & ~(3UL << 14)) | (1UL << 14);
 
-    /* The PY32F002B-C reference manual explicitly states that a pending
-       EXTI/peripheral interrupt prevents STOP entry. PB0 is EXTI0. */
-    EXTI->PR = (1UL << 0);
-    NVIC_ClearPendingIRQ(EXTI0_1_IRQn);
+    /* Keep the wake check and sleep instruction atomic with respect to the
+       ISR. A pending EXTI edge wakes WFI while masked, then is serviced when
+       interrupts are re-enabled. Do not clear pending state here: it may be
+       the shake that should wake the ornament. */
+    __disable_irq();
+    if (wake_flag || (EXTI->PR & (1UL << 0)) != 0)
+    {
+        __enable_irq();
+        return;
+    }
 
     /* Enter Cortex-M0+ deep sleep, which the PY32 power controller turns
        into STOP mode with the PWR_CR1 settings above. */
@@ -277,6 +263,7 @@ static void EnterStopMode(void)
     __DSB();
     __WFI();
     __ISB();
+    __enable_irq();
 
     /* STOP exit automatically selects HSI as SYSCLK. Nothing else is
        required here for this application. */
