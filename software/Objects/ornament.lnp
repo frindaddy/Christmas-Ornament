@@ -1,0 +1,9 @@
+--cpu Cortex-M0+
+".\objects\main.o"
+".\objects\py32f0xx_ll_exti.o"
+".\objects\py32f0xx_ll_gpio.o"
+".\objects\startup_py32f002bxx.o"
+".\objects\system_py32f002b.o"
+--ro-base 0x08000000 --entry 0x08000000 --rw-base 0x20000000 --entry Reset_Handler --first __Vectors --strict --summary_stderr --info summarysizes --map --load_addr_map_info --xref --callgraph --symbols
+--info sizes --info totals --info unused --info veneers
+--list ".\Listings\ornament.map" -o .\Objects\ornament.axf
