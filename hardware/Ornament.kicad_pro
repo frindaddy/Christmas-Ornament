@@ -692,7 +692,7 @@
           "group_by": false,
           "label": "JLCPCB Part Number",
           "name": "JLCPCB Part Number",
-          "show": false
+          "show": true
         }
       ],
       "filter_string": "",
