@@ -3371,7 +3371,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
@@ -3388,7 +3388,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "CR2032-BS-6-1"
+		(property "Value" "A-BAT-CH-C8-EA-ZSR3"
 			(at 54.61 51.4984 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -3410,7 +3410,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "https://www.lcsc.com/product-detail/C70377.html"
+		(property "Datasheet" "https://mm.digikey.com/Volume0/opasdata/d220001/medias/docus/6167/A-BAT-CH-C8-EA-ZSR3.PDF"
 			(at 50.8 50.546 90)
 			(hide yes)
 			(show_name no)
@@ -3465,7 +3465,7 @@
 				)
 			)
 		)
-		(property "JLCPCB Part Number" "C70377"
+		(property "JLCPCB Part Number" ""
 			(at 50.8 52.07 0)
 			(hide yes)
 			(show_name no)
@@ -7562,7 +7562,7 @@
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
-		(in_bom yes)
+		(in_bom no)
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
